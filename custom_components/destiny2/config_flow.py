@@ -61,6 +61,11 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             self._redirect_uri = f"{base_url}/auth/external/callback"
 
+            # Debug: Check what flow_id actually is
+            _LOGGER.debug("Flow ID type: %s", type(self.flow_id))
+            _LOGGER.debug("Flow ID value: %s", self.flow_id)
+            _LOGGER.debug("Redirect URI: %s", self._redirect_uri)
+
             # Build authorization URL with all required params
             # Use flow_id as state - HA uses this to route callbacks
             auth_params = urlencode(
@@ -74,6 +79,7 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
             auth_url = f"{OAUTH_AUTHORIZE_URL}?{auth_params}"
+            _LOGGER.debug("Final auth URL: %s", auth_url)
 
             return self.async_external_step(step_id="auth", url=auth_url)
 
@@ -95,6 +101,10 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle external authentication callback."""
         if user_input is None:
             return self.async_external_step_done(next_step_id="auth")
+
+        # Debug: Log what we received in the callback
+        _LOGGER.debug("Callback user_input: %s", user_input)
+        _LOGGER.debug("Current flow_id: %s", self.flow_id)
 
         # Extract authorization code from callback
         # State verification is handled by HA's external auth routing
