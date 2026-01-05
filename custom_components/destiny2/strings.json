@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Destiny 2 Setup",
+        "description": "Enter your Bungie API credentials. You can obtain these from https://www.bungie.net/en/Application",
+        "data": {
+          "api_key": "API Key",
+          "client_id": "OAuth Client ID",
+          "client_secret": "OAuth Client Secret"
+        }
+      }
+    },
+    "error": {
+      "missing_code": "Authorization code was not received from Bungie",
+      "token_exchange_failed": "Failed to exchange authorization code for access token",
+      "connection_error": "Unable to connect to Bungie API"
+    },
+    "abort": {
+      "missing_code": "Authorization code was not received from Bungie",
+      "token_exchange_failed": "Failed to exchange authorization code for access token",
+      "connection_error": "Unable to connect to Bungie API",
+      "already_configured": "This Destiny 2 account is already configured"
+    }
+  }
+}
