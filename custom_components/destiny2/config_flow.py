@@ -13,6 +13,7 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.network import get_url
 
 from .const import (
     CONF_API_KEY,
@@ -37,6 +38,7 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._client_id: str | None = None
         self._client_secret: str | None = None
         self._code: str | None = None
+        self._redirect_uri: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -49,8 +51,14 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._client_id = user_input[CONF_CLIENT_ID]
             self._client_secret = user_input[CONF_CLIENT_SECRET]
 
-            # Generate redirect URI
-            redirect_uri = f"{self.hass.config.api.base_url}/auth/external/callback"
+            # Generate redirect URI using Home Assistant's external URL
+            try:
+                base_url = get_url(self.hass, prefer_external=True)
+            except Exception:
+                # Fallback to external_url if get_url fails
+                base_url = self.hass.config.external_url or "http://homeassistant.local:8123"
+
+            self._redirect_uri = f"{base_url}/auth/external/callback"
 
             # Build authorization URL
             auth_url = (
@@ -95,19 +103,27 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Exchange authorization code for access token."""
         session = async_get_clientsession(self.hass)
 
+        # Prepare token exchange data
+        token_data_payload = {
+            "grant_type": "authorization_code",
+            "code": self._code,
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+        }
+
+        # Include redirect_uri if it was set
+        if self._redirect_uri:
+            token_data_payload["redirect_uri"] = self._redirect_uri
+
         try:
             async with session.post(
                 OAUTH_TOKEN_URL,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={
-                    "grant_type": "authorization_code",
-                    "code": self._code,
-                    "client_id": self._client_id,
-                    "client_secret": self._client_secret,
-                },
+                data=token_data_payload,
             ) as response:
                 if response.status != 200:
-                    _LOGGER.error("Token exchange failed: %s", await response.text())
+                    response_text = await response.text()
+                    _LOGGER.error("Token exchange failed with status %s: %s", response.status, response_text)
                     return self.async_abort(reason="token_exchange_failed")
 
                 token_data = await response.json()
