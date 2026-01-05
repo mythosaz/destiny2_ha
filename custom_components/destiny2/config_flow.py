@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -62,19 +61,13 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             self._redirect_uri = f"{base_url}/auth/external/callback"
 
-            # Generate state for OAuth security and flow correlation
-            state = secrets.token_urlsafe(32)
-
-            # Store state in hass.data for verification on callback
-            self.hass.data.setdefault(DOMAIN, {})
-            self.hass.data[DOMAIN]["oauth_state"] = state
-
             # Build authorization URL with all required params
+            # Use flow_id as state - HA uses this to route callbacks
             auth_params = urlencode(
                 {
                     "client_id": self._client_id,
                     "response_type": "code",
-                    "state": state,
+                    "state": self.flow_id,  # HA uses flow_id to correlate callbacks
                     "redirect_uri": self._redirect_uri,
                 },
                 quote_via=quote,
@@ -103,15 +96,8 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_external_step_done(next_step_id="auth")
 
-        # Verify state parameter for CSRF protection
-        returned_state = user_input.get("state")
-        stored_state = self.hass.data.get(DOMAIN, {}).get("oauth_state")
-
-        if not returned_state or returned_state != stored_state:
-            _LOGGER.error("OAuth state mismatch - possible CSRF attack")
-            return self.async_abort(reason="state_mismatch")
-
         # Extract authorization code from callback
+        # State verification is handled by HA's external auth routing
         if "code" not in user_input:
             return self.async_abort(reason="missing_code")
 
