@@ -20,7 +20,8 @@
       "missing_code": "Authorization code was not received from Bungie",
       "token_exchange_failed": "Failed to exchange authorization code for access token",
       "connection_error": "Unable to connect to Bungie API",
-      "already_configured": "This Destiny 2 account is already configured"
+      "already_configured": "This Destiny 2 account is already configured",
+      "state_mismatch": "Authentication failed - state parameter mismatch. Please try again."
     }
   }
 }

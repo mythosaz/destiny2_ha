@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Any
+from urllib.parse import quote, urlencode
 
 import aiohttp
 import voluptuous as vol
@@ -60,12 +62,25 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             self._redirect_uri = f"{base_url}/auth/external/callback"
 
-            # Build authorization URL
-            auth_url = (
-                f"{OAUTH_AUTHORIZE_URL}"
-                f"?client_id={self._client_id}"
-                f"&response_type=code"
+            # Generate state for OAuth security and flow correlation
+            state = secrets.token_urlsafe(32)
+
+            # Store state in hass.data for verification on callback
+            self.hass.data.setdefault(DOMAIN, {})
+            self.hass.data[DOMAIN]["oauth_state"] = state
+
+            # Build authorization URL with all required params
+            auth_params = urlencode(
+                {
+                    "client_id": self._client_id,
+                    "response_type": "code",
+                    "state": state,
+                    "redirect_uri": self._redirect_uri,
+                },
+                quote_via=quote,
             )
+
+            auth_url = f"{OAUTH_AUTHORIZE_URL}?{auth_params}"
 
             return self.async_external_step(step_id="auth", url=auth_url)
 
@@ -87,6 +102,14 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle external authentication callback."""
         if user_input is None:
             return self.async_external_step_done(next_step_id="auth")
+
+        # Verify state parameter for CSRF protection
+        returned_state = user_input.get("state")
+        stored_state = self.hass.data.get(DOMAIN, {}).get("oauth_state")
+
+        if not returned_state or returned_state != stored_state:
+            _LOGGER.error("OAuth state mismatch - possible CSRF attack")
+            return self.async_abort(reason="state_mismatch")
 
         # Extract authorization code from callback
         if "code" not in user_input:
