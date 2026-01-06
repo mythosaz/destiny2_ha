@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .callback import Destiny2CallbackView
 from .const import (
     CONF_API_KEY,
     CONF_CLIENT_ID,
@@ -24,6 +25,13 @@ from .coordinator import Destiny2Coordinator
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Destiny 2 component."""
+    # Register the OAuth callback view
+    hass.http.register_view(Destiny2CallbackView())
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
