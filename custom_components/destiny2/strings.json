@@ -3,18 +3,22 @@
     "step": {
       "user": {
         "title": "Destiny 2 Setup",
-        "description": "Enter your Bungie API credentials. You can obtain these from https://www.bungie.net/en/Application",
+        "description": "Enter your Bungie API credentials. You can obtain these from https://www.bungie.net/en/Application. Set your Bungie app redirect URL to match the option you select below.",
         "data": {
           "api_key": "API Key",
           "client_id": "OAuth Client ID",
-          "client_secret": "OAuth Client Secret"
+          "client_secret": "OAuth Client Secret",
+          "redirect_source": "Redirect URL Source",
+          "custom_redirect_url": "Custom Redirect URL (if Custom selected)"
         }
       }
     },
     "error": {
       "missing_code": "Authorization code was not received from Bungie",
       "token_exchange_failed": "Failed to exchange authorization code for access token",
-      "connection_error": "Unable to connect to Bungie API"
+      "connection_error": "Unable to connect to Bungie API",
+      "custom_url_required": "Custom redirect URL is required when 'Custom URL' is selected",
+      "no_url_available": "No URL available for selected redirect source. Check your Home Assistant network settings."
     },
     "abort": {
       "missing_code": "Authorization code was not received from Bungie",

@@ -165,14 +165,39 @@ class Destiny2Coordinator(DataUpdateCoordinator):
                     return None
 
                 data = await response.json()
+                _LOGGER.debug("Milestones data: %s", data)
 
                 # Parse season end from milestones
-                # This is a simplified example - actual parsing may vary
                 if "Response" in data:
-                    # Look for season-related milestone
-                    # The actual structure depends on Bungie's API response
-                    # For now, return None as placeholder
-                    _LOGGER.debug("Milestones data: %s", data)
+                    milestones = data["Response"]
+
+                    # Find the longest endDate across all milestones
+                    # Season milestones typically have the furthest end date
+                    latest_end_date = None
+
+                    for milestone_hash, milestone_data in milestones.items():
+                        if "endDate" in milestone_data:
+                            end_date_str = milestone_data["endDate"]
+                            try:
+                                # Parse ISO 8601 format: "2026-01-13T17:00:00Z"
+                                end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+
+                                if latest_end_date is None or end_date > latest_end_date:
+                                    latest_end_date = end_date
+                                    _LOGGER.debug(
+                                        "Found milestone %s with end date: %s",
+                                        milestone_hash,
+                                        end_date_str,
+                                    )
+                            except (ValueError, AttributeError) as err:
+                                _LOGGER.debug("Failed to parse date %s: %s", end_date_str, err)
+                                continue
+
+                    if latest_end_date:
+                        _LOGGER.info("Season end date found: %s", latest_end_date)
+                        return latest_end_date
+
+                    _LOGGER.warning("No endDate found in any milestone")
                     return None
 
         except aiohttp.ClientError as err:
@@ -204,16 +229,32 @@ class Destiny2Coordinator(DataUpdateCoordinator):
                     "Authorization": f"Bearer {self._access_token}",
                 },
             ) as response:
+                if response.status == 500:
+                    _LOGGER.warning(
+                        "Bungie API returned 500 for vault - will retry next cycle. "
+                        "Preserving last known value."
+                    )
+                    # Return last known value if available
+                    return self.data.get("vault_count") if self.data else None
+
                 if response.status != 200:
-                    _LOGGER.warning("Failed to fetch vault count: %s", response.status)
+                    response_text = await response.text()
+                    _LOGGER.warning(
+                        "Failed to fetch vault count: %s - %s", response.status, response_text[:200]
+                    )
                     return None
 
                 data = await response.json()
 
                 # Parse vault count
                 if "Response" in data and "profileInventory" in data["Response"]:
-                    items = data["Response"]["profileInventory"]["data"]["items"]
-                    return len(items) if items else 0
+                    profile_inv = data["Response"]["profileInventory"]
+                    if "data" in profile_inv and "items" in profile_inv["data"]:
+                        items = profile_inv["data"]["items"]
+                        return len(items) if items else 0
+
+                _LOGGER.warning("Unexpected vault response structure: %s", data)
+                return None
 
         except aiohttp.ClientError as err:
             _LOGGER.error("Failed to fetch vault count: %s", err)

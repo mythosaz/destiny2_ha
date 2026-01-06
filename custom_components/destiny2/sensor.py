@@ -56,9 +56,9 @@ class Destiny2SensorBase(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._sensor_type = sensor_type
-        self._attr_name = name
-        self._attr_unique_id = f"{entry.entry_id}_{sensor_type}"
-        self._attr_has_entity_name = True
+        self._attr_name = f"Destiny 2 {name}"
+        self._attr_unique_id = f"destiny2_{sensor_type}"
+        self._entry = entry
 
 
 class Destiny2WeeklyResetSensor(Destiny2SensorBase):
