@@ -28,6 +28,13 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Redirect URI options
+REDIRECT_OPTIONS = {
+    "external": "External URL (Internet/Nabu Casa)",
+    "internal": "Internal URL (Local Network)",
+    "custom": "Custom URL",
+}
+
 
 class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Destiny 2."""
@@ -53,19 +60,54 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._client_id = user_input[CONF_CLIENT_ID]
             self._client_secret = user_input[CONF_CLIENT_SECRET]
 
-            # Generate redirect URI using Home Assistant's external URL
-            try:
-                base_url = get_url(self.hass, prefer_external=True)
-            except Exception:
-                # Fallback to external_url if get_url fails
-                base_url = self.hass.config.external_url or "http://homeassistant.local:8123"
+            # Get redirect URL based on user selection
+            redirect_source = user_input.get("redirect_source", "external")
+            base_url = None
 
-            # Use custom callback endpoint instead of HA's built-in OAuth endpoint
+            if redirect_source == "external":
+                try:
+                    base_url = get_url(self.hass, prefer_external=True)
+                except Exception:
+                    base_url = self.hass.config.external_url
+            elif redirect_source == "internal":
+                try:
+                    base_url = get_url(self.hass, prefer_external=False)
+                except Exception:
+                    base_url = self.hass.config.internal_url
+            elif redirect_source == "custom":
+                base_url = user_input.get("custom_redirect_url", "").rstrip("/")
+                if not base_url:
+                    errors["custom_redirect_url"] = "custom_url_required"
+
+            # Validate base_url
+            if not base_url:
+                errors["base"] = "no_url_available"
+
+            if errors:
+                # Re-show form with errors
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(CONF_API_KEY): str,
+                            vol.Required(CONF_CLIENT_ID): str,
+                            vol.Required(CONF_CLIENT_SECRET): str,
+                            vol.Required("redirect_source", default="external"): vol.In(
+                                REDIRECT_OPTIONS
+                            ),
+                            vol.Optional("custom_redirect_url"): str,
+                        }
+                    ),
+                    errors=errors,
+                )
+
+            # Use custom callback endpoint
             self._redirect_uri = f"{base_url}{CALLBACK_PATH}"
 
-            # Debug: Check what flow_id actually is
-            _LOGGER.debug("Flow ID type: %s", type(self.flow_id))
-            _LOGGER.debug("Flow ID value: %s", self.flow_id)
+            # Debug logging
+            _LOGGER.debug("Flow ID: %s", self.flow_id)
+            _LOGGER.debug("Redirect source: %s", redirect_source)
+            _LOGGER.debug("Base URL: %s", base_url)
             _LOGGER.debug("Redirect URI: %s", self._redirect_uri)
 
             # Build authorization URL with all required params
@@ -92,6 +134,8 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_API_KEY): str,
                     vol.Required(CONF_CLIENT_ID): str,
                     vol.Required(CONF_CLIENT_SECRET): str,
+                    vol.Required("redirect_source", default="external"): vol.In(REDIRECT_OPTIONS),
+                    vol.Optional("custom_redirect_url"): str,
                 }
             ),
             errors=errors,
