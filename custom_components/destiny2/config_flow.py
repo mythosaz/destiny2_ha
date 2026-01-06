@@ -16,6 +16,7 @@ from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url
 
+from .callback import CALLBACK_PATH
 from .const import (
     CONF_API_KEY,
     CONF_CLIENT_ID,
@@ -59,7 +60,8 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 # Fallback to external_url if get_url fails
                 base_url = self.hass.config.external_url or "http://homeassistant.local:8123"
 
-            self._redirect_uri = f"{base_url}/auth/external/callback"
+            # Use custom callback endpoint instead of HA's built-in OAuth endpoint
+            self._redirect_uri = f"{base_url}{CALLBACK_PATH}"
 
             # Debug: Check what flow_id actually is
             _LOGGER.debug("Flow ID type: %s", type(self.flow_id))
@@ -99,15 +101,13 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle external authentication callback."""
+        _LOGGER.debug("async_step_auth called with: %s", user_input)
+
         if user_input is None:
+            # Waiting for callback - tell HA we're ready for external step completion
             return self.async_external_step_done(next_step_id="auth")
 
-        # Debug: Log what we received in the callback
-        _LOGGER.debug("Callback user_input: %s", user_input)
-        _LOGGER.debug("Current flow_id: %s", self.flow_id)
-
-        # Extract authorization code from callback
-        # State verification is handled by HA's external auth routing
+        # Callback view has provided the authorization code
         if "code" not in user_input:
             return self.async_abort(reason="missing_code")
 
