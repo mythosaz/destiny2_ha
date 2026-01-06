@@ -103,18 +103,14 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle external authentication callback."""
         _LOGGER.debug("async_step_auth called with: %s", user_input)
 
-        if user_input is None:
-            # Waiting for callback - tell HA we're ready for external step completion
-            return self.async_external_step_done(next_step_id="auth")
+        if user_input is not None and "code" in user_input:
+            # Store the code, then signal external step is done
+            # HA will automatically call async_step_token next
+            self._code = user_input["code"]
+            return self.async_external_step_done(next_step_id="token")
 
-        # Callback view has provided the authorization code
-        if "code" not in user_input:
-            return self.async_abort(reason="missing_code")
-
-        self._code = user_input["code"]
-
-        # Exchange code for tokens
-        return await self.async_step_token()
+        # No code provided
+        return self.async_abort(reason="missing_code")
 
     async def async_step_token(
         self, user_input: dict[str, Any] | None = None
