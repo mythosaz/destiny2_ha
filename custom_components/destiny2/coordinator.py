@@ -22,6 +22,7 @@ from .const import (
     OAUTH_TOKEN_URL,
     UPDATE_INTERVAL,
 )
+from .manifest import ManifestCache
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class Destiny2Coordinator(DataUpdateCoordinator):
         self._access_token = entry.data.get("access_token")
         self._refresh_token = entry.data.get("refresh_token")
         self._token_expires_at = None
+        self.manifest = ManifestCache(hass, entry.data[CONF_API_KEY])
 
         # Calculate token expiration time
         if "expires_in" in entry.data:
@@ -149,7 +151,7 @@ class Destiny2Coordinator(DataUpdateCoordinator):
         return next_reset
 
     async def _fetch_season_end(self) -> datetime | None:
-        """Fetch season end date from Bungie API."""
+        """Fetch season end date from Bungie API and log decoded milestones."""
         session = async_get_clientsession(self.hass)
 
         try:
@@ -165,40 +167,55 @@ class Destiny2Coordinator(DataUpdateCoordinator):
                     return None
 
                 data = await response.json()
-                _LOGGER.debug("Milestones data: %s", data)
 
-                # Parse season end from milestones
-                if "Response" in data:
-                    milestones = data["Response"]
-
-                    # Find the longest endDate across all milestones
-                    # Season milestones typically have the furthest end date
-                    latest_end_date = None
-
-                    for milestone_hash, milestone_data in milestones.items():
-                        if "endDate" in milestone_data:
-                            end_date_str = milestone_data["endDate"]
-                            try:
-                                # Parse ISO 8601 format: "2026-01-13T17:00:00Z"
-                                end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
-
-                                if latest_end_date is None or end_date > latest_end_date:
-                                    latest_end_date = end_date
-                                    _LOGGER.debug(
-                                        "Found milestone %s with end date: %s",
-                                        milestone_hash,
-                                        end_date_str,
-                                    )
-                            except (ValueError, AttributeError) as err:
-                                _LOGGER.debug("Failed to parse date %s: %s", end_date_str, err)
-                                continue
-
-                    if latest_end_date:
-                        _LOGGER.info("Season end date found: %s", latest_end_date)
-                        return latest_end_date
-
-                    _LOGGER.warning("No endDate found in any milestone")
+                if "Response" not in data:
+                    _LOGGER.warning("No Response in milestones data")
                     return None
+
+                milestones = data["Response"]
+                latest_end_date = None
+
+                # Decode and log all milestones
+                _LOGGER.debug("=== BEGIN MILESTONE DECODE ===")
+
+                for milestone_hash, milestone_data in milestones.items():
+                    # Get milestone type name
+                    milestone_name = await self.manifest.get_milestone_name(milestone_hash)
+
+                    # Get activity names if present
+                    activity_names = []
+                    if "activities" in milestone_data:
+                        for activity in milestone_data["activities"]:
+                            if "activityHash" in activity:
+                                activity_name = await self.manifest.get_activity_name(
+                                    activity["activityHash"]
+                                )
+                                activity_names.append(activity_name)
+
+                    # Log the decoded milestone
+                    end_date_str = milestone_data.get("endDate", "no end date")
+                    _LOGGER.info(
+                        "Milestone: %s | Activities: %s | Ends: %s",
+                        milestone_name,
+                        ", ".join(activity_names) if activity_names else "none",
+                        end_date_str,
+                    )
+
+                    # Track latest end date for season
+                    if "endDate" in milestone_data:
+                        try:
+                            end_date = datetime.fromisoformat(
+                                milestone_data["endDate"].replace("Z", "+00:00")
+                            )
+                            if latest_end_date is None or end_date > latest_end_date:
+                                latest_end_date = end_date
+                        except (ValueError, AttributeError):
+                            continue
+
+                _LOGGER.debug("=== END MILESTONE DECODE ===")
+                _LOGGER.debug("Manifest cache stats: %s", self.manifest.get_cache_stats())
+
+                return latest_end_date
 
         except aiohttp.ClientError as err:
             _LOGGER.error("Failed to fetch season end: %s", err)
