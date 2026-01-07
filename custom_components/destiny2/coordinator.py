@@ -164,9 +164,10 @@ class Destiny2Coordinator(DataUpdateCoordinator):
 
         return next_reset
 
-    async def _fetch_season_end(self) -> datetime | None:
-        """Fetch season end date from Bungie API and log decoded milestones."""
+    async def _fetch_milestones(self) -> dict[str, Any]:
+        """Fetch milestones and decode rotators."""
         session = async_get_clientsession(self.hass)
+        result = {"season_end": None, "rotators": {"raids": [], "dungeons": [], "other": []}}
 
         try:
             async with session.get(
@@ -178,49 +179,91 @@ class Destiny2Coordinator(DataUpdateCoordinator):
             ) as response:
                 if response.status != 200:
                     _LOGGER.warning("Failed to fetch milestones: %s", response.status)
-                    return None
+                    return result
 
                 data = await response.json()
 
                 if "Response" not in data:
-                    _LOGGER.warning("No Response in milestones data")
-                    return None
+                    return result
 
                 milestones = data["Response"]
                 latest_end_date = None
 
-                # Decode and log all milestones
                 _LOGGER.debug("=== BEGIN MILESTONE DECODE ===")
 
                 for milestone_hash, milestone_data in milestones.items():
-                    # Get milestone type name
                     milestone_name = await self.manifest.get_milestone_name(milestone_hash)
 
-                    # Get activity names if present
-                    activity_names = []
+                    # Get first activity name
+                    activity_name = None
+                    has_master = False
                     if "activities" in milestone_data:
                         for activity in milestone_data["activities"]:
                             if "activityHash" in activity:
-                                activity_name = await self.manifest.get_activity_name(
-                                    activity["activityHash"]
-                                )
-                                activity_names.append(activity_name)
+                                act_name = await self.manifest.get_activity_name(activity["activityHash"])
+                                if activity_name is None:
+                                    activity_name = act_name
+                                if "Master" in act_name:
+                                    has_master = True
 
-                    # Log the decoded milestone
-                    end_date_str = milestone_data.get("endDate", "no end date")
-                    _LOGGER.info(
-                        "Milestone: %s | Activities: %s | Ends: %s",
+                    end_date_str = milestone_data.get("endDate")
+
+                    _LOGGER.debug(
+                        "Milestone: %s | Activity: %s | Master: %s | Ends: %s",
                         milestone_name,
-                        ", ".join(activity_names) if activity_names else "none",
-                        end_date_str,
+                        activity_name or "none",
+                        has_master,
+                        end_date_str or "no end date",
                     )
 
-                    # Track latest end date for season
-                    if "endDate" in milestone_data:
+                    # Categorize by name patterns
+                    name_lower = milestone_name.lower() if milestone_name else ""
+
+                    # Known raid names
+                    raid_keywords = [
+                        "last wish",
+                        "garden of salvation",
+                        "deep stone crypt",
+                        "vault of glass",
+                        "vow of the disciple",
+                        "king's fall",
+                        "root of nightmares",
+                        "crota's end",
+                        "salvation's edge",
+                    ]
+
+                    # Known dungeon names
+                    dungeon_keywords = [
+                        "shattered throne",
+                        "pit of heresy",
+                        "prophecy",
+                        "grasp of avarice",
+                        "duality",
+                        "spire of the watcher",
+                        "ghosts of the deep",
+                        "warlord's ruin",
+                        "vesper's host",
+                        "desert perpetual",
+                    ]
+
+                    entry = {
+                        "name": milestone_name,
+                        "activity": activity_name,
+                        "has_master": has_master,
+                        "end_date": end_date_str,
+                    }
+
+                    if any(kw in name_lower for kw in raid_keywords):
+                        result["rotators"]["raids"].append(entry)
+                    elif any(kw in name_lower for kw in dungeon_keywords):
+                        result["rotators"]["dungeons"].append(entry)
+                    elif activity_name and end_date_str:
+                        result["rotators"]["other"].append(entry)
+
+                    # Track season end
+                    if end_date_str:
                         try:
-                            end_date = datetime.fromisoformat(
-                                milestone_data["endDate"].replace("Z", "+00:00")
-                            )
+                            end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
                             if latest_end_date is None or end_date > latest_end_date:
                                 latest_end_date = end_date
                         except (ValueError, AttributeError):
@@ -228,12 +271,19 @@ class Destiny2Coordinator(DataUpdateCoordinator):
 
                 _LOGGER.debug("=== END MILESTONE DECODE ===")
                 _LOGGER.debug("Manifest cache stats: %s", self.manifest.get_cache_stats())
+                _LOGGER.debug(
+                    "Rotators found - Raids: %d, Dungeons: %d, Other: %d",
+                    len(result["rotators"]["raids"]),
+                    len(result["rotators"]["dungeons"]),
+                    len(result["rotators"]["other"]),
+                )
 
-                return latest_end_date
+                result["season_end"] = latest_end_date
+                return result
 
         except aiohttp.ClientError as err:
-            _LOGGER.error("Failed to fetch season end: %s", err)
-            return None
+            _LOGGER.error("Failed to fetch milestones: %s", err)
+            return result
 
     async def _fetch_vault_count(self) -> int | None:
         """Fetch vault item count from Bungie API."""
@@ -282,3 +332,136 @@ class Destiny2Coordinator(DataUpdateCoordinator):
         except aiohttp.ClientError as err:
             _LOGGER.error("Failed to fetch vault count: %s", err)
             return None
+
+    async def _fetch_characters(self) -> dict[str, Any] | None:
+        """Fetch character info including postmaster counts."""
+        membership_id = self.entry.data.get("membership_id")
+        membership_type = self.entry.data.get("membership_type", -1)
+
+        if not membership_id:
+            _LOGGER.warning("No membership ID available for characters")
+            return None
+
+        session = async_get_clientsession(self.hass)
+
+        try:
+            # Components: 200 = Characters, 201 = CharacterInventories
+            async with session.get(
+                f"{API_BASE_URL}/Destiny2/{membership_type}/Profile/{membership_id}/?components=200,201",
+                headers={
+                    "X-API-Key": self._api_key,
+                    "Authorization": f"Bearer {self._access_token}",
+                },
+            ) as response:
+                if response.status == 500:
+                    _LOGGER.warning(
+                        "Bungie API returned 500 for characters - will retry next cycle. "
+                        "Preserving last known value."
+                    )
+                    return self.data.get("characters") if self.data else None
+
+                if response.status != 200:
+                    response_text = await response.text()
+                    _LOGGER.warning(
+                        "Failed to fetch characters: %s - %s", response.status, response_text[:200]
+                    )
+                    return None
+
+                data = await response.json()
+
+                if "Response" not in data:
+                    _LOGGER.warning("Unexpected characters response structure")
+                    return None
+
+                response_data = data["Response"]
+                characters_data = response_data.get("characters", {}).get("data", {})
+                inventories_data = response_data.get("characterInventories", {}).get("data", {})
+
+                characters = []
+                postmaster_critical = False
+
+                _LOGGER.debug("=== BEGIN CHARACTER DECODE ===")
+
+                for char_id, char_info in characters_data.items():
+                    # Decode class, race, gender
+                    class_name = await self.manifest.get_class_name(char_info.get("classHash"))
+                    race_name = await self._get_race_name(char_info.get("raceHash"))
+                    gender_name = await self._get_gender_name(char_info.get("genderHash"))
+
+                    # Count postmaster items
+                    postmaster_count = 0
+                    if char_id in inventories_data:
+                        items = inventories_data[char_id].get("items", [])
+                        postmaster_count = sum(
+                            1 for item in items if item.get("bucketHash") == BUCKET_POSTMASTER
+                        )
+
+                    # Flag critical if >= 18 items
+                    if postmaster_count >= 18:
+                        postmaster_critical = True
+
+                    light_level = char_info.get("light", 0)
+                    emblem_hash = char_info.get("emblemHash")
+                    last_played = char_info.get("dateLastPlayed")
+
+                    _LOGGER.debug(
+                        "Character: %s %s %s | Light: %s | Postmaster: %s/21 | Last played: %s",
+                        race_name,
+                        gender_name,
+                        class_name,
+                        light_level,
+                        postmaster_count,
+                        last_played or "never",
+                    )
+
+                    characters.append(
+                        {
+                            "character_id": char_id,
+                            "class": class_name,
+                            "race": race_name,
+                            "gender": gender_name,
+                            "light": light_level,
+                            "emblem_hash": emblem_hash,
+                            "last_played": last_played,
+                            "postmaster_count": postmaster_count,
+                        }
+                    )
+
+                # Sort by last_played descending (most recent first)
+                characters.sort(
+                    key=lambda c: c.get("last_played") or "", reverse=True
+                )
+
+                _LOGGER.debug("=== END CHARACTER DECODE ===")
+                _LOGGER.debug("Characters found: %d", len(characters))
+                _LOGGER.debug("Postmaster critical: %s", postmaster_critical)
+
+                return {
+                    "count": len(characters),
+                    "characters": characters,
+                    "postmaster_critical": postmaster_critical,
+                }
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error("Failed to fetch characters: %s", err)
+            return None
+
+    async def _get_race_name(self, hash_id: int | str | None) -> str:
+        """Get race display name from hash."""
+        if hash_id is None:
+            return "Unknown"
+
+        definition = await self.manifest.get_definition("DestinyRaceDefinition", hash_id)
+        if definition and "displayProperties" in definition:
+            return definition["displayProperties"].get("name", f"Unknown ({hash_id})")
+        return f"Unknown ({hash_id})"
+
+    async def _get_gender_name(self, hash_id: int | str | None) -> str:
+        """Get gender display name from hash."""
+        if hash_id is None:
+            return "Unknown"
+
+        definition = await self.manifest.get_definition("DestinyGenderDefinition", hash_id)
+        if definition and "displayProperties" in definition:
+            return definition["displayProperties"].get("name", f"Unknown ({hash_id})")
+        return f"Unknown ({hash_id})"
