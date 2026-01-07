@@ -18,6 +18,7 @@ from homeassistant.helpers.network import get_url
 
 from .callback import CALLBACK_PATH
 from .const import (
+    API_BASE_URL,
     CONF_API_KEY,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
@@ -162,7 +163,6 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Exchange authorization code for access token."""
         session = async_get_clientsession(self.hass)
 
-        # Prepare token exchange data
         token_data_payload = {
             "grant_type": "authorization_code",
             "code": self._code,
@@ -170,11 +170,11 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             "client_secret": self._client_secret,
         }
 
-        # Include redirect_uri if it was set
         if self._redirect_uri:
             token_data_payload["redirect_uri"] = self._redirect_uri
 
         try:
+            # Step 1: Exchange code for tokens
             async with session.post(
                 OAUTH_TOKEN_URL,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -187,8 +187,46 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
                 token_data = await response.json()
 
+            # Step 2: Get membership info
+            membership_id = None
+            membership_type = -1  # Default to auto-resolve
+
+            async with session.get(
+                f"{API_BASE_URL}/User/GetMembershipsForCurrentUser/",
+                headers={
+                    "X-API-Key": self._api_key,
+                    "Authorization": f"Bearer {token_data.get('access_token')}",
+                },
+            ) as response:
+                if response.status == 200:
+                    membership_data = await response.json()
+                    _LOGGER.debug("Membership data: %s", membership_data)
+
+                    if "Response" in membership_data:
+                        resp = membership_data["Response"]
+                        memberships = resp.get("destinyMemberships", [])
+                        primary_id = resp.get("primaryMembershipId")
+
+                        # Find primary membership or use first available
+                        for m in memberships:
+                            if primary_id and m.get("membershipId") == primary_id:
+                                membership_id = m.get("membershipId")
+                                membership_type = m.get("membershipType")
+                                _LOGGER.info("Using primary membership: type=%s, id=%s", membership_type, membership_id)
+                                break
+
+                        # Fallback to first membership if no primary
+                        if not membership_id and memberships:
+                            membership_id = memberships[0].get("membershipId")
+                            membership_type = memberships[0].get("membershipType")
+                            _LOGGER.info("Using first membership: type=%s, id=%s", membership_type, membership_id)
+                else:
+                    _LOGGER.warning("Failed to get memberships: %s", response.status)
+                    # Fall back to token membership_id if available
+                    membership_id = token_data.get("membership_id")
+
         except aiohttp.ClientError as err:
-            _LOGGER.error("Failed to exchange token: %s", err)
+            _LOGGER.error("Failed during token/membership exchange: %s", err)
             return self.async_abort(reason="connection_error")
 
         # Store all credentials and tokens
@@ -199,11 +237,12 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             "access_token": token_data.get("access_token"),
             "refresh_token": token_data.get("refresh_token"),
             "expires_in": token_data.get("expires_in", 3600),
-            "membership_id": token_data.get("membership_id"),
+            "membership_id": membership_id,
+            "membership_type": membership_type,
         }
 
         # Create entry
-        await self.async_set_unique_id(f"destiny2_{data.get('membership_id', 'unknown')}")
+        await self.async_set_unique_id(f"destiny2_{membership_id or 'unknown'}")
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(title="Destiny 2", data=data)
