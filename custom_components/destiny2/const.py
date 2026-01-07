@@ -25,3 +25,22 @@ SENSOR_WEEKLY_RESET = "weekly_reset"
 SENSOR_DAILY_RESET = "daily_reset"
 SENSOR_SEASON_END = "season_end"
 SENSOR_VAULT_COUNT = "vault_count"
+SENSOR_GUARDIAN = "guardian"
+SENSOR_CHARACTERS = "characters"
+SENSOR_ROTATORS = "rotators"
+
+# Bungie bucket hashes
+BUCKET_POSTMASTER = 215593132
+
+# Membership type names
+MEMBERSHIP_TYPES = {
+    0: "None",
+    1: "Xbox",
+    2: "PlayStation",
+    3: "Steam",
+    4: "Blizzard",
+    5: "Stadia",
+    6: "Epic",
+    10: "Demon",
+    254: "BungieNext",
+}

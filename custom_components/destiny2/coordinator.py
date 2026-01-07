@@ -13,11 +13,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    API_BASE_URL,
+    API_MILESTONES,
+    BUCKET_POSTMASTER,
     CONF_API_KEY,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
-    API_BASE_URL,
-    API_MILESTONES,
     DOMAIN,
     OAUTH_TOKEN_URL,
     UPDATE_INTERVAL,
@@ -104,19 +105,32 @@ class Destiny2Coordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Bungie API."""
-        # Refresh token if needed
         await self.async_refresh_token_if_needed()
 
         data = {}
 
-        # Calculate reset times (these don't require API calls)
+        # Calculated locally
         data["weekly_reset"] = self._calculate_next_weekly_reset()
         data["daily_reset"] = self._calculate_next_daily_reset()
 
-        # Fetch season end and vault count from API
+        # Guardian info from stored config
+        data["guardian"] = {
+            "bungie_name": self.entry.data.get("bungie_name", "Unknown"),
+            "display_name": self.entry.data.get("display_name", "Unknown"),
+            "membership_id": self.entry.data.get("membership_id"),
+            "membership_type": self.entry.data.get("membership_type"),
+            "membership_type_name": self.entry.data.get("membership_type_name", "Unknown"),
+            "first_access": self.entry.data.get("first_access"),
+        }
+
+        # Fetch from API
         try:
-            data["season_end"] = await self._fetch_season_end()
+            milestones_data = await self._fetch_milestones()
+            data["season_end"] = milestones_data.get("season_end")
+            data["rotators"] = milestones_data.get("rotators", {})
+
             data["vault_count"] = await self._fetch_vault_count()
+            data["characters"] = await self._fetch_characters()
         except Exception as err:
             _LOGGER.error("Error fetching Destiny 2 data: %s", err)
             raise UpdateFailed(f"Error communicating with API: {err}") from err

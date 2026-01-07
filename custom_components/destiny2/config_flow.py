@@ -23,6 +23,7 @@ from .const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     DOMAIN,
+    MEMBERSHIP_TYPES,
     OAUTH_AUTHORIZE_URL,
     OAUTH_TOKEN_URL,
 )
@@ -189,7 +190,11 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Step 2: Get membership info
             membership_id = None
-            membership_type = -1  # Default to auto-resolve
+            membership_type = -1
+            bungie_name = "Unknown"
+            bungie_name_code = 0
+            display_name = "Unknown"
+            first_access = None
 
             async with session.get(
                 f"{API_BASE_URL}/User/GetMembershipsForCurrentUser/",
@@ -207,29 +212,42 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         memberships = resp.get("destinyMemberships", [])
                         primary_id = resp.get("primaryMembershipId")
 
+                        # Get Bungie.net user info
+                        bungie_user = resp.get("bungieNetUser", {})
+                        first_access = bungie_user.get("firstAccess")
+
                         # Find primary membership or use first available
                         for m in memberships:
                             if primary_id and m.get("membershipId") == primary_id:
                                 membership_id = m.get("membershipId")
                                 membership_type = m.get("membershipType")
+                                display_name = m.get("displayName", "Unknown")
+                                bungie_name = m.get("bungieGlobalDisplayName", display_name)
+                                bungie_name_code = m.get("bungieGlobalDisplayNameCode", 0)
                                 _LOGGER.info("Using primary membership: type=%s, id=%s", membership_type, membership_id)
                                 break
 
                         # Fallback to first membership if no primary
                         if not membership_id and memberships:
-                            membership_id = memberships[0].get("membershipId")
-                            membership_type = memberships[0].get("membershipType")
+                            m = memberships[0]
+                            membership_id = m.get("membershipId")
+                            membership_type = m.get("membershipType")
+                            display_name = m.get("displayName", "Unknown")
+                            bungie_name = m.get("bungieGlobalDisplayName", display_name)
+                            bungie_name_code = m.get("bungieGlobalDisplayNameCode", 0)
                             _LOGGER.info("Using first membership: type=%s, id=%s", membership_type, membership_id)
                 else:
                     _LOGGER.warning("Failed to get memberships: %s", response.status)
-                    # Fall back to token membership_id if available
                     membership_id = token_data.get("membership_id")
 
         except aiohttp.ClientError as err:
             _LOGGER.error("Failed during token/membership exchange: %s", err)
             return self.async_abort(reason="connection_error")
 
-        # Store all credentials and tokens
+        # Build full Bungie name with code
+        full_bungie_name = f"{bungie_name}#{bungie_name_code}" if bungie_name_code else bungie_name
+
+        # Store all credentials, tokens, and profile info
         data = {
             CONF_API_KEY: self._api_key,
             CONF_CLIENT_ID: self._client_id,
@@ -239,10 +257,14 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             "expires_in": token_data.get("expires_in", 3600),
             "membership_id": membership_id,
             "membership_type": membership_type,
+            "membership_type_name": MEMBERSHIP_TYPES.get(membership_type, "Unknown"),
+            "bungie_name": full_bungie_name,
+            "display_name": display_name,
+            "first_access": first_access,
         }
 
         # Create entry
         await self.async_set_unique_id(f"destiny2_{membership_id or 'unknown'}")
         self._abort_if_unique_id_configured()
 
-        return self.async_create_entry(title="Destiny 2", data=data)
+        return self.async_create_entry(title=f"Destiny 2 - {full_bungie_name}", data=data)

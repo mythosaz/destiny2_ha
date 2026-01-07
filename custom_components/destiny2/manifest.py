@@ -26,6 +26,8 @@ class ManifestCache:
             "DestinyActivityDefinition": {},
             "DestinyClassDefinition": {},
             "DestinyInventoryItemDefinition": {},
+            "DestinyRaceDefinition": {},
+            "DestinyGenderDefinition": {},
         }
 
     async def get_definition(
