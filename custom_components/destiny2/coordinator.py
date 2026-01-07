@@ -207,21 +207,15 @@ class Destiny2Coordinator(DataUpdateCoordinator):
     async def _fetch_vault_count(self) -> int | None:
         """Fetch vault item count from Bungie API."""
         membership_id = self.entry.data.get("membership_id")
+        membership_type = self.entry.data.get("membership_type", -1)  # -1 auto-resolves cross-save
+
         if not membership_id:
             _LOGGER.warning("No membership ID available")
             return None
 
         session = async_get_clientsession(self.hass)
 
-        # We need to determine membership type (1=Xbox, 2=PSN, 3=Steam, etc.)
-        # For now, we'll try to fetch the profile
-        # Component 102 is ProfileInventories (vault)
-
         try:
-            # This is a simplified version - you'd need to get the actual
-            # membership type from the initial OAuth response
-            membership_type = 3  # Assuming Steam for now
-
             async with session.get(
                 f"{API_BASE_URL}/Destiny2/{membership_type}/Profile/{membership_id}/?components=102",
                 headers={
@@ -234,7 +228,6 @@ class Destiny2Coordinator(DataUpdateCoordinator):
                         "Bungie API returned 500 for vault - will retry next cycle. "
                         "Preserving last known value."
                     )
-                    # Return last known value if available
                     return self.data.get("vault_count") if self.data else None
 
                 if response.status != 200:
@@ -246,14 +239,13 @@ class Destiny2Coordinator(DataUpdateCoordinator):
 
                 data = await response.json()
 
-                # Parse vault count
                 if "Response" in data and "profileInventory" in data["Response"]:
                     profile_inv = data["Response"]["profileInventory"]
                     if "data" in profile_inv and "items" in profile_inv["data"]:
                         items = profile_inv["data"]["items"]
                         return len(items) if items else 0
 
-                _LOGGER.warning("Unexpected vault response structure: %s", data)
+                _LOGGER.warning("Unexpected vault response structure")
                 return None
 
         except aiohttp.ClientError as err:
