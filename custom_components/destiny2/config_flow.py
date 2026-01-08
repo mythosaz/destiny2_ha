@@ -22,6 +22,8 @@ from .const import (
     CONF_API_KEY,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     MEMBERSHIP_TYPES,
     OAUTH_AUTHORIZE_URL,
@@ -50,6 +52,7 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._client_secret: str | None = None
         self._code: str | None = None
         self._redirect_uri: str | None = None
+        self._update_interval: int = 60  # Default: 60 minutes (1 hour)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -61,6 +64,7 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._api_key = user_input[CONF_API_KEY]
             self._client_id = user_input[CONF_CLIENT_ID]
             self._client_secret = user_input[CONF_CLIENT_SECRET]
+            self._update_interval = user_input.get(CONF_UPDATE_INTERVAL, 60)
 
             # Get redirect URL based on user selection
             redirect_source = user_input.get("redirect_source", "external")
@@ -98,6 +102,9 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                                 REDIRECT_OPTIONS
                             ),
                             vol.Optional("custom_redirect_url"): str,
+                            vol.Optional(CONF_UPDATE_INTERVAL, default=60): vol.All(
+                                vol.Coerce(int), vol.Range(min=5, max=1440)
+                            ),
                         }
                     ),
                     errors=errors,
@@ -138,6 +145,9 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_CLIENT_SECRET): str,
                     vol.Required("redirect_source", default="external"): vol.In(REDIRECT_OPTIONS),
                     vol.Optional("custom_redirect_url"): str,
+                    vol.Optional(CONF_UPDATE_INTERVAL, default=60): vol.All(
+                        vol.Coerce(int), vol.Range(min=5, max=1440)
+                    ),
                 }
             ),
             errors=errors,
@@ -261,6 +271,7 @@ class OAuth2FlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             "bungie_name": full_bungie_name,
             "display_name": display_name,
             "first_access": first_access,
+            CONF_UPDATE_INTERVAL: self._update_interval,
         }
 
         # Create entry
