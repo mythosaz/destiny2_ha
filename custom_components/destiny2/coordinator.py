@@ -31,13 +31,15 @@ _LOGGER = logging.getLogger(__name__)
 class Destiny2Coordinator(DataUpdateCoordinator):
     """Coordinator to manage Destiny 2 data updates."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, update_interval: timedelta | None = None
+    ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=UPDATE_INTERVAL,
+            update_interval=update_interval or UPDATE_INTERVAL,
         )
         self.entry = entry
         self._api_key = entry.data[CONF_API_KEY]

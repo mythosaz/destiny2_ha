@@ -7,6 +7,7 @@ DOMAIN = "destiny2"
 CONF_API_KEY = "api_key"
 CONF_CLIENT_ID = "client_id"
 CONF_CLIENT_SECRET = "client_secret"
+CONF_UPDATE_INTERVAL = "update_interval"
 
 # Bungie API endpoints
 OAUTH_AUTHORIZE_URL = "https://www.bungie.net/en/OAuth/Authorize"
@@ -18,7 +19,8 @@ API_MILESTONES = "/Destiny2/Milestones/"
 API_PROFILE = "/Destiny2/{membershipType}/Profile/{destinyMembershipId}/"
 
 # Update interval
-UPDATE_INTERVAL = timedelta(minutes=15)
+DEFAULT_UPDATE_INTERVAL = timedelta(hours=1)  # Default: 1 hour
+UPDATE_INTERVAL = DEFAULT_UPDATE_INTERVAL  # For backward compatibility
 
 # Sensor types
 SENSOR_WEEKLY_RESET = "weekly_reset"

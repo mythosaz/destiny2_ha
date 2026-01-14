@@ -47,6 +47,7 @@ Before setting up this integration, you need to create a Bungie API application:
    - API Key
    - OAuth Client ID
    - OAuth Client Secret
+   - Update Interval (optional, default: 60 minutes)
 5. You'll be redirected to Bungie to authorize the application
 6. After authorization, the integration will be set up and sensors will appear
 
@@ -94,7 +95,7 @@ This integration uses OAuth2 with the Bungie API. Your access token is automatic
 
 ## Data Updates
 
-The integration polls the Bungie API every 15 minutes to update sensor data. Reset times are calculated locally and don't require API calls.
+The integration polls the Bungie API to update sensor data. The default polling interval is 1 hour (60 minutes), but this can be configured during setup to any value between 5 and 1440 minutes (24 hours). Reset times are calculated locally and don't require API calls.
 
 ## Troubleshooting
 

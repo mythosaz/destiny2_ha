@@ -16,9 +16,10 @@ from .const import (
     CONF_API_KEY,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     OAUTH_TOKEN_URL,
-    UPDATE_INTERVAL,
 )
 from .coordinator import Destiny2Coordinator
 
@@ -38,8 +39,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Destiny 2 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    # Get update interval from config or use default
+    update_interval_minutes = entry.data.get(CONF_UPDATE_INTERVAL, 60)
+    update_interval = timedelta(minutes=update_interval_minutes)
+
     # Create coordinator
-    coordinator = Destiny2Coordinator(hass, entry)
+    coordinator = Destiny2Coordinator(hass, entry, update_interval)
 
     # Refresh token if needed
     await coordinator.async_refresh_token_if_needed()
